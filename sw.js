@@ -1,5 +1,5 @@
 // Offline shell: the app opens without internet; data lives in IndexedDB, sync waits for the network.
-const CACHE = 'superplan-v0.1.1';
+const CACHE = 'superplan-v0.2.0';
 const FILES = ['./', 'index.html', 'styles.css', 'manifest.webmanifest', 'js/app.js', 'js/store.js', 'js/sync.js', 'js/icons.js', 'js/repeat.js',
   'vendor/sql-wasm.js', 'vendor/sql-wasm.wasm', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())); });

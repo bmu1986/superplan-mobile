@@ -2,7 +2,7 @@
 (function () {
   const { Store, Blobs, IDB, Dropbox, startAuth, finishAuth, sync, attachmentBytes, Pending } = window.SP;
   const I = window.Icons;
-  const VERSION = '0.1.1';
+  const VERSION = '0.2.0';
 
   // ---------- tiny DOM helpers ----------
   const $ = (s, r = document) => r.querySelector(s);
@@ -66,7 +66,9 @@
     justDone: null,
     sync: { running: false, msg: '' },
   };
-  let cfg = { theme: 'auto', showDone: false };
+  let cfg = { theme: 'auto', showDone: false, offlineFiles: true };
+  let localBlobs = new Set(); // attachment hashes stored on this device
+  const offline = { running: false, done: 0, total: 0, failed: 0 };
   const saveCfg = () => IDB.set('kv', 'cfg', cfg);
 
   const wideMQ = matchMedia('(min-width: 768px)');
@@ -785,6 +787,7 @@
         const hash = await Blobs.put(bytes);
         store.upsert('attachments', { task_id: t.id, kind: 'file', name: f.name || 'Фото.jpg', mime: f.type || 'application/octet-stream', size: bytes.length, hash, created_at: Date.now() });
         await Pending.add(hash);
+        localBlobs.add(hash);
       }
       reload();
       toast(add.files.length > 1 ? `Добавлено файлов: ${add.files.length}` : 'Файл добавлен');
@@ -798,7 +801,7 @@
       const icon = isLink ? I.link(20) : /^image\//.test(a.mime || '') ? I.image(20) : I.file(20);
       box.append(h('div', { class: 'att', onclick: () => openAttachment(a) },
         h('span', { class: 'att-ic', html: icon }),
-        h('div', { class: 'att-main' }, h('div', { class: 'att-name' }, a.name || a.target || 'Файл'), h('small', {}, isLink ? (a.target || '').replace(/^https?:\/\//, '').slice(0, 60) : local ? 'Ссылка на файл на компьютере' : fmtSize(a.size))),
+        h('div', { class: 'att-main' }, h('div', { class: 'att-name' }, a.name || a.target || 'Файл'), h('small', {}, isLink ? (a.target || '').replace(/^https?:\/\//, '').slice(0, 60) : local ? 'Ссылка на файл на компьютере' : `${fmtSize(a.size)}${a.hash ? (localBlobs.has(a.hash) ? ' · на телефоне ✓' : ' · в облаке') : ''}`)),
         h('button', { class: 'cl-del', html: I.trash ? I.trash(16) : I.close(14), 'aria-label': 'Удалить', onclick: async (e) => { e.stopPropagation(); if (await confirmDlg(`Удалить «${a.name || 'вложение'}»?`)) { store.softDelete('attachments', a.id); reload(); } } })));
     }
     if (!t.attachments.length) box.append(h('div', { class: 'muted small pad' }, 'Нет вложений'));
@@ -820,6 +823,7 @@
     try {
       toast('Открываю…', null, null, 15000);
       bytes = await attachmentBytes(dbx, a.hash);
+      localBlobs.add(a.hash);
       $('#toast').classList.remove('show');
     } catch (e) { toast(e.message, null, null, 5000); return; }
     const mime = a.mime || 'application/octet-stream';
@@ -894,6 +898,20 @@
     }
 
     const themeSeg = h('div', { class: 'seg' }, [['auto', 'Как в системе'], ['light', 'Светлая'], ['dark', 'Тёмная']].map(([v, l]) => h('button', { class: cfg.theme === v ? 'on' : '', onclick: () => { cfg.theme = v; saveCfg(); applyTheme(); renderList(); } }, l)));
+    {
+      const refs = store.all('SELECT hash, MAX(size) AS size FROM attachments WHERE deleted = 0 AND hash IS NOT NULL GROUP BY hash');
+      const have = refs.filter((r) => localBlobs.has(r.hash));
+      const bytes = have.reduce((n, r) => n + (r.size || 0), 0);
+      const all = refs.reduce((n, r) => n + (r.size || 0), 0);
+      const sw = h('button', { class: 'switch' + (cfg.offlineFiles ? ' on' : ''), 'aria-label': 'Хранить вложения на телефоне', onclick: () => { cfg.offlineFiles = !cfg.offlineFiles; saveCfg(); renderList(); if (cfg.offlineFiles) prefetchAttachments(); } }, h('i'));
+      const status = offline.running ? `Скачиваю: ${offline.done} из ${offline.total}…` : `На телефоне ${have.length} из ${refs.length}${refs.length ? ` · ${fmtSize(bytes) || '0 КБ'} из ${fmtSize(all) || '0 КБ'}` : ''}`;
+      page.append(group('Вложения без интернета',
+        h('div', { class: 'srow' }, h('span', {}, 'Хранить все вложения на телефоне'), sw),
+        h('div', { class: 'srow' }, h('span', {}, 'Скачано'), h('b', {}, status)),
+        offline.failed && !offline.running ? h('div', { class: 'srow err' }, `Не удалось скачать: ${offline.failed}. Возможно, компьютер ещё не загрузил эти файлы в Dropbox.`) : null,
+        cfg.refreshToken && have.length < refs.length && !offline.running ? h('button', { class: 'srow btn-row', onclick: () => prefetchAttachments(true) }, 'Скачать недостающие сейчас') : null,
+        h('div', { class: 'spad' }, h('p', { class: 'hint' }, 'Когда есть интернет, SuperPlan сам скачивает новые вложения после каждой синхронизации. Потом они открываются и без сети.'))));
+    }
     page.append(group('Оформление', h('div', { class: 'spad' }, themeSeg)));
 
     const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
@@ -932,7 +950,7 @@
       cfg.lastSync = Date.now();
       delete cfg.lastError;
       if (manual) toast(res.skipped ? 'Всё уже синхронизировано' : res.taken ? `Синхронизировано: получено изменений ${res.taken}` : 'Синхронизировано');
-      gcBlobs();
+      gcBlobs().then(() => prefetchAttachments());
     } catch (e) {
       cfg.lastError = e.message;
       if (manual) toast(e.message, null, null, 6000);
@@ -949,12 +967,37 @@
   }
   function scheduleSync(ms = 4000) { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncNow(), ms); }
 
+  async function refreshLocalBlobs() { try { localBlobs = new Set(await Blobs.list()); } catch { /* ignore */ } }
+
+  // Keep a copy of every attachment on the device, so it opens without internet.
+  async function prefetchAttachments(manual = false) {
+    if (offline.running || !cfg.refreshToken || (!cfg.offlineFiles && !manual)) return;
+    if (!dbx) dbx = new Dropbox({ appKey: cfg.appKey, refreshToken: cfg.refreshToken });
+    await refreshLocalBlobs();
+    const need = [...store.referencedHashes()].filter((h) => !localBlobs.has(h));
+    if (!need.length) { if (manual) toast('Все вложения уже на телефоне'); return; }
+    Object.assign(offline, { running: true, done: 0, total: need.length, failed: 0 });
+    if (state.view.type === 'settings') renderList();
+    for (const hash of need) {
+      if (!navigator.onLine) break;
+      try { await attachmentBytes(dbx, hash); localBlobs.add(hash); } catch { offline.failed++; }
+      offline.done++;
+      if (state.view.type === 'settings') renderList();
+    }
+    offline.running = false;
+    await refreshLocalBlobs();
+    if (manual) toast(offline.failed ? `Скачано ${offline.done - offline.failed}, не удалось: ${offline.failed}` : `Скачано вложений: ${offline.done}`);
+    if (state.view.type === 'settings') renderList();
+    if (state.selectedId) renderDetail();
+  }
+
   async function gcBlobs() {
     if (cfg.lastBlobGc && Date.now() - cfg.lastBlobGc < DAY) return;
     cfg.lastBlobGc = Date.now();
     const keep = store.referencedHashes();
     const pending = await Pending.all();
     for (const h of await Blobs.list()) if (!keep.has(h) && !pending.has(h)) await Blobs.del(h);
+    await refreshLocalBlobs();
   }
 
   // ---------- reload ----------
@@ -977,6 +1020,7 @@
     applyTheme();
     try { navigator.storage?.persist?.(); } catch { /* ignore */ }
     store = await Store.open();
+    await refreshLocalBlobs();
     store.onChange((local) => { if (local) scheduleSync(); });
     if (cfg.view && cfg.view.type) state.view = cfg.view;
     state.snap = store.snapshot();

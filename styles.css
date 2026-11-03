@@ -261,3 +261,7 @@ body.three .detail:not(.open) .d-head { display: none; }
 .link-btn { display: flex; align-items: center; justify-content: center; text-decoration: none; color: var(--text); text-align: center; }
 .link-btn.disabled { opacity: .5; }
 .toast span { flex: 1; min-width: 0; }
+.switch { width: 51px; height: 31px; border-radius: 16px; background: var(--line); position: relative; flex: none; transition: background .2s; }
+.switch i { position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,.2); transition: transform .2s; }
+.switch.on { background: var(--accent); }
+.switch.on i { transform: translateX(20px); }
