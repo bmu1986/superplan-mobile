@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="SuperPlan">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#16181c" media="(prefers-color-scheme: dark)">
+  <meta name="format-detection" content="telephone=no">
+  <title>SuperPlan</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app" class="app">
+    <aside class="side" id="side"></aside>
+    <main class="main" id="main">
+      <header class="bar" id="bar"></header>
+      <div class="scroll" id="scroll"><div id="list"></div></div>
+      <button class="fab" id="fab" aria-label="Новая задача"></button>
+    </main>
+    <section class="detail" id="detail" aria-hidden="true"></section>
+    <nav class="tabs" id="tabs"></nav>
+  </div>
+  <div id="sheets"></div>
+  <div class="toast" id="toast"></div>
+  <script src="vendor/sql-wasm.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/repeat.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
