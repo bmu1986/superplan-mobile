@@ -2,7 +2,7 @@
 (function () {
   const { Store, Blobs, IDB, Dropbox, startAuth, finishAuth, sync, attachmentBytes, Pending } = window.SP;
   const I = window.Icons;
-  const VERSION = '0.1.0';
+  const VERSION = '0.1.1';
 
   // ---------- tiny DOM helpers ----------
   const $ = (s, r = document) => r.querySelector(s);
