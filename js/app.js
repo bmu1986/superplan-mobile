@@ -2,7 +2,7 @@
 (function () {
   const { Store, Blobs, IDB, Dropbox, startAuth, finishAuth, sync, attachmentBytes, Pending } = window.SP;
   const I = window.Icons;
-  const VERSION = '0.3.0';
+  const VERSION = '0.3.1';
 
   // ---------- tiny DOM helpers ----------
   const $ = (s, r = document) => r.querySelector(s);
@@ -536,7 +536,7 @@
     el.innerHTML = '';
     $('#fab').style.display = ['settings', 'projects'].includes(v.type) && state.search == null ? 'none' : '';
     if (v.type === 'settings' && state.search == null) { el.append(settingsPage()); return; }
-    if (v.type === 'projects' && state.search == null) { el.append(projectsPage()); return; }
+    if (v.type === 'projects' && state.search == null) { el.append(h('div', { class: 'navs big' }, navList({ forSide: false }))); return; }
     if (state.search != null && !state.search.trim()) { el.append(h('div', { class: 'empty' }, 'Ищу по названиям, описаниям и именам вложений.')); return; }
 
     if (v.type === 'today' && state.search == null) {
