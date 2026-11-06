@@ -2,7 +2,7 @@
 (function () {
   const { Store, Blobs, IDB, Dropbox, startAuth, finishAuth, sync, attachmentBytes, Pending } = window.SP;
   const I = window.Icons;
-  const VERSION = '0.2.1';
+  const VERSION = '0.3.0';
 
   // ---------- tiny DOM helpers ----------
   const $ = (s, r = document) => r.querySelector(s);
@@ -268,6 +268,79 @@
     return out;
   }
 
+  // ---------- «Проекты» on the phone: big cards ----------
+  function folderTile(f, n = 46) {
+    const c = f.parent_id ? (f.icon_color || SUBFOLDER_COLOR) : projectColor(f);
+    const inner = f.icon && I.glyphs && I.glyphs[f.icon] ? I.glyph(f.icon, '#fff', Math.round(n * 0.56), 2.1) : I.folderFilled('#fff', Math.round(n * 0.56));
+    return h('span', { class: 'ptile', style: { width: `${n}px`, height: `${n}px`, background: c }, html: inner });
+  }
+  function descendants(id) { const out = [id]; for (let i = 0; i < out.length; i++) for (const c of childrenOf(out[i])) out.push(c.id); return out; }
+  function projectStats(ids) {
+    const set = new Set(ids);
+    const list = state.snap.tasks.filter((t) => set.has(t.folder_id) && !isNote(t));
+    const open = list.filter((t) => !t.done);
+    const sodNow = sod(new Date()).getTime();
+    return {
+      open: open.length, done: list.length - open.length, total: list.length,
+      today: open.filter((t) => isToday(t) && !(t.due_at && t.due_at < sodNow)).length,
+      over: open.filter((t) => t.due_at && t.due_at < sodNow).length,
+      notes: state.snap.tasks.filter((t) => set.has(t.folder_id) && isNote(t)).length,
+    };
+  }
+  const plural = (n, a, b, c) => { const m = n % 10; const k = n % 100; return m === 1 && k !== 11 ? a : m >= 2 && m <= 4 && (k < 12 || k > 14) ? b : c; };
+  function projectsPage() {
+    const page = h('div', { class: 'projects' });
+    const tasks = state.snap.tasks;
+    const quick = [];
+    if (!tabOrder().includes('notes')) quick.push({ icon: I.noteBig(26), color: '#f0a020', label: 'Заметки', n: tasks.filter(isNote).length, go: { type: 'notes', from: 'projects' } });
+    if (!tabOrder().includes('all')) quick.push({ icon: I.inbox(26), color: '#3b82f6', label: 'Все задачи', n: tasks.filter((t) => !t.done && !isNote(t)).length, go: { type: 'all' } });
+    if (!tabOrder().includes('fav')) quick.push({ icon: I.bookmark(25, '#fff'), color: '#e5484d', label: 'Избранное', n: tasks.filter((t) => t.fav && !t.done).length, go: { type: 'fav' } });
+    if (!tabOrder().includes('today')) quick.push({ icon: I.today(26), color: '#14a982', label: 'Сегодня', n: tasks.filter((t) => !t.done && isToday(t)).length, go: { type: 'today' } });
+    if (quick.length) {
+      page.append(h('div', { class: 'qtiles' }, quick.map((q) => h('button', { class: 'qtile', onclick: () => setView(q.go) },
+        h('span', { class: 'qt-ic', style: { background: q.color }, html: q.icon.replace(/stroke="currentColor"/g, 'stroke="#fff"') }),
+        h('b', {}, q.label), h('span', { class: 'qt-n' }, q.n || '')))));
+    }
+    page.append(h('div', { class: 'sec' }, h('span', {}, 'Мои проекты'), h('button', { class: 'sec-add', html: I.plus(20), 'aria-label': 'Новый проект', onclick: () => newFolder(null) })));
+    const roots = childrenOf(null);
+    if (!roots.length) page.append(h('div', { class: 'empty small' }, 'Проектов пока нет. Подключите Dropbox в настройках, чтобы увидеть проекты с компьютера, или создайте новый.'));
+    for (const f of roots) {
+      const st = projectStats(descendants(f.id));
+      const own = projectStats([f.id]);
+      const pct = st.total ? Math.round((st.done / st.total) * 100) : 0;
+      const color = projectColor(f);
+      const info = [];
+      info.push(st.open ? `${st.open} ${plural(st.open, 'задача', 'задачи', 'задач')}` : 'Нет открытых задач');
+      if (st.notes) info.push(`${st.notes} ${plural(st.notes, 'заметка', 'заметки', 'заметок')}`);
+      const badges = h('div', { class: 'pc-badges' },
+        st.over ? h('span', { class: 'pb over' }, `${st.over} ${plural(st.over, 'просрочена', 'просрочены', 'просрочено')}`) : null,
+        st.today ? h('span', { class: 'pb today' }, `${st.today} на сегодня`) : null);
+      const kids = childrenOf(f.id);
+      const card = h('div', { class: 'pcard', style: { '--pc': color }, onclick: () => setView({ type: 'folder', id: f.id, from: 'projects' }) },
+        h('div', { class: 'pc-top' }, folderTile(f, 48),
+          h('div', { class: 'pc-main' }, h('div', { class: 'pc-name' }, f.name), h('div', { class: 'pc-info' }, info.join(' · '))),
+          h('button', { class: 'pc-more', html: '<b class="dots">•••</b>', 'aria-label': 'Действия', onclick: (e) => { e.stopPropagation(); folderMenu(f); } })),
+        st.done ? h('div', { class: 'pc-prog' }, h('div', { class: 'pc-bar' }, h('i', { style: { width: `${pct}%` } })), h('span', {}, `${st.done} из ${st.total}`)) : null,
+        badges.childNodes.length ? badges : null,
+        kids.length ? h('div', { class: 'pc-kids' }, kids.map((k) => {
+          const ks = projectStats(descendants(k.id));
+          return h('button', { class: 'kid', onclick: (e) => { e.stopPropagation(); setView({ type: 'folder', id: k.id, from: 'projects' }); } },
+            h('span', { html: folderIcon(k, 18) }), h('span', { class: 'kid-n' }, k.name), ks.open ? h('small', {}, ks.open) : null);
+        })) : null);
+      if (own && own.open === 0 && st.open === 0 && st.total) card.classList.add('all-done');
+      page.append(card);
+    }
+    page.append(h('button', { class: 'pcard pnew', onclick: () => newFolder(null) }, h('span', { html: I.plus(22) }), 'Новый проект'));
+    if (state.snap.tags.length) {
+      page.append(h('div', { class: 'sec' }, h('span', {}, 'Метки')));
+      page.append(h('div', { class: 'tagcloud' }, state.snap.tags.map((t) => {
+        const n = state.snap.taskTags.filter((x) => x.tag_id === t.id && taskById(x.task_id) && !taskById(x.task_id).done).length;
+        return h('button', { class: 'tagbig', style: { '--tc': t.color }, onclick: () => setView({ type: 'tag', id: t.id, from: 'projects' }) }, t.name, n ? h('small', {}, n) : null);
+      })));
+    }
+    return page;
+  }
+
   function renderSide() {
     const el = $('#side');
     if (!isWide()) { el.innerHTML = ''; return; }
@@ -280,20 +353,105 @@
     box.scrollTop = scroll;
   }
 
+  // ---------- bottom tabs: order and set are per device, rearranged by long-press + drag or in Settings ----------
+  const TAB_DEFS = {
+    today: { label: 'Сегодня', icon: () => I.today(24) },
+    all: { label: 'Все', icon: () => I.inbox(24) },
+    fav: { label: 'Избранное', icon: () => I.bookmark(23, 'currentColor') },
+    notes: { label: 'Заметки', icon: () => I.noteBig(24) },
+    projects: { label: 'Проекты', icon: () => I.folder('currentColor', 24) },
+    settings: { label: 'Настройки', icon: () => I.gear(24) },
+  };
+  const DEFAULT_TABS = ['today', 'all', 'fav', 'projects', 'settings'];
+  function tabOrder() {
+    const t = (Array.isArray(cfg.tabs) ? cfg.tabs : DEFAULT_TABS).filter((x) => TAB_DEFS[x]);
+    const out = [...new Set(t)];
+    if (!out.includes('settings')) out.push('settings');
+    return out;
+  }
+  function tabActive(id) {
+    const v = state.view.type;
+    if (id === v) return true;
+    if (id === 'projects') return ['folder', 'tag'].includes(v) || (v === 'notes' && !tabOrder().includes('notes'));
+    return false;
+  }
+  let tabEdit = false;
   function renderTabs() {
     const el = $('#tabs');
     el.innerHTML = '';
+    el.classList.toggle('editing', tabEdit);
     if (isWide()) return;
-    const v = state.view.type;
-    const tab = (id, icon, label, active) => h('button', { class: 'tab' + (active ? ' active' : ''), onclick: () => { state.search = null; setView({ type: id }); } }, h('span', { html: icon }), h('small', {}, label));
     const todayN = state.snap.tasks.filter((t) => !t.done && isToday(t)).length;
-    const t1 = tab('today', I.today(24), 'Сегодня', v === 'today');
-    if (todayN) t1.append(h('i', { class: 'badge' }, todayN));
-    el.append(t1,
-      tab('all', I.inbox(24), 'Все', v === 'all'),
-      tab('fav', I.bookmark(23, 'currentColor'), 'Избранное', v === 'fav'),
-      tab('projects', I.folder('currentColor', 24), 'Проекты', ['projects', 'folder', 'notes', 'tag'].includes(v)),
-      tab('settings', I.gear(24), 'Настройки', v === 'settings'));
+    for (const id of tabOrder()) {
+      const d = TAB_DEFS[id];
+      const b = h('button', { class: 'tab' + (tabActive(id) ? ' active' : ''), 'data-tab': id }, h('span', { html: d.icon() }), h('small', {}, d.label));
+      if (id === 'today' && todayN && !tabEdit) b.append(h('i', { class: 'badge' }, todayN));
+      b.onclick = () => { if (tabEdit || b.dataset.dragged) return; state.search = null; setView({ type: id }); };
+      el.append(b);
+    }
+    if (tabEdit) el.append(h('button', { class: 'tab-done', onclick: () => { tabEdit = false; renderTabs(); } }, 'Готово'));
+  }
+  // long press on the tab bar → tabs wiggle → drag one left/right → release
+  (function tabDrag() {
+    let timer = null; let drag = null; let startX = 0; let startY = 0;
+    const bar = () => $('#tabs');
+    document.addEventListener('pointerdown', (e) => {
+      const t = e.target.closest('#tabs .tab');
+      if (!t) return;
+      startX = e.clientX; startY = e.clientY;
+      const begin = () => {
+        tabEdit = true; renderTabs();
+        const el = bar().querySelector(`.tab[data-tab="${t.dataset.tab}"]`);
+        drag = { id: t.dataset.tab, el };
+        el.classList.add('dragging');
+        try { navigator.vibrate?.(10); } catch { /* ignore */ }
+      };
+      if (tabEdit) begin(); else timer = setTimeout(begin, 450);
+    });
+    document.addEventListener('pointermove', (e) => {
+      if (timer && (Math.abs(e.clientX - startX) > 8 || Math.abs(e.clientY - startY) > 8)) { clearTimeout(timer); timer = null; }
+      if (!drag) return;
+      e.preventDefault();
+      const tabs = [...bar().querySelectorAll('.tab')];
+      const dx = e.clientX - startX;
+      const r0 = drag.el.getBoundingClientRect(); const bw = bar().getBoundingClientRect(); const cur = new DOMMatrix(getComputedStyle(drag.el).transform).m41 || 0;
+      const minDx = bw.left - (r0.left - cur); const maxDx = bw.right - (r0.right - cur);
+      drag.el.style.transform = `translateX(${Math.max(minDx, Math.min(maxDx, dx))}px)`;
+      const target = tabs.find((x) => x !== drag.el && (() => { const r = x.getBoundingClientRect(); return e.clientX > r.left && e.clientX < r.right; })());
+      if (target) {
+        const order = tabOrder();
+        const from = order.indexOf(drag.id); const to = order.indexOf(target.dataset.tab);
+        order.splice(from, 1); order.splice(to, 0, drag.id);
+        cfg.tabs = order; saveCfg();
+        renderTabs();
+        drag.el = bar().querySelector(`.tab[data-tab="${drag.id}"]`);
+        drag.el.classList.add('dragging');
+        startX = e.clientX; drag.el.style.transform = '';
+      }
+    }, { passive: false });
+    const end = () => {
+      clearTimeout(timer); timer = null;
+      if (drag) { drag.el.style.transform = ''; drag.el.classList.remove('dragging'); const el = drag.el; el.dataset.dragged = '1'; setTimeout(() => { delete el.dataset.dragged; }, 80); drag = null; }
+    };
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', end);
+    document.addEventListener('contextmenu', (e) => { if (e.target.closest('#tabs')) e.preventDefault(); });
+  })();
+
+  function tabsSettings() {
+    const order = tabOrder();
+    const hidden = Object.keys(TAB_DEFS).filter((id) => !order.includes(id));
+    const move = (id, d) => { const o = tabOrder(); const i = o.indexOf(id); const j = i + d; if (j < 0 || j >= o.length) return; [o[i], o[j]] = [o[j], o[i]]; cfg.tabs = o; saveCfg(); renderTabs(); renderList(); };
+    const rows = order.map((id, i) => h('div', { class: 'srow tabrow' },
+      h('span', { class: 'tr-ic', html: TAB_DEFS[id].icon() }), h('span', { class: 'tr-label' }, TAB_DEFS[id].label),
+      h('button', { class: 'tr-btn', html: I.chevDown(18), style: { transform: 'rotate(180deg)' }, disabled: i === 0, 'aria-label': 'Левее', onclick: () => move(id, -1) }),
+      h('button', { class: 'tr-btn', html: I.chevDown(18), disabled: i === order.length - 1, 'aria-label': 'Правее', onclick: () => move(id, 1) }),
+      id === 'settings' ? h('span', { class: 'tr-btn' }) : h('button', { class: 'tr-btn danger', html: I.close(16), 'aria-label': 'Убрать', disabled: order.length <= 2, onclick: () => { cfg.tabs = tabOrder().filter((x) => x !== id); saveCfg(); render(); } })));
+    const add = hidden.map((id) => h('div', { class: 'srow tabrow muted-row' },
+      h('span', { class: 'tr-ic', html: TAB_DEFS[id].icon() }), h('span', { class: 'tr-label' }, TAB_DEFS[id].label),
+      h('button', { class: 'txt-btn', disabled: order.length >= 6, onclick: () => { const o = tabOrder(); o.splice(o.length - 1, 0, id); cfg.tabs = o; saveCfg(); render(); } }, '+ Добавить')));
+    return [...rows, ...add, h('div', { class: 'spad' }, h('p', { class: 'hint' }, 'Можно и просто удерживать палец на нижней панели и перетаскивать вкладки. Вкладок не больше шести.')),
+      h('button', { class: 'srow btn-row', onclick: () => { delete cfg.tabs; saveCfg(); render(); } }, 'Вернуть как было')];
   }
 
   function syncButton() {
@@ -378,7 +536,7 @@
     el.innerHTML = '';
     $('#fab').style.display = ['settings', 'projects'].includes(v.type) && state.search == null ? 'none' : '';
     if (v.type === 'settings' && state.search == null) { el.append(settingsPage()); return; }
-    if (v.type === 'projects' && state.search == null) { el.append(h('div', { class: 'navs' }, navList({ forSide: false }))); return; }
+    if (v.type === 'projects' && state.search == null) { el.append(projectsPage()); return; }
     if (state.search != null && !state.search.trim()) { el.append(h('div', { class: 'empty' }, 'Ищу по названиям, описаниям и именам вложений.')); return; }
 
     if (v.type === 'today' && state.search == null) {
@@ -912,6 +1070,7 @@
         cfg.refreshToken && have.length < refs.length && !offline.running ? h('button', { class: 'srow btn-row', onclick: () => prefetchAttachments(true) }, 'Скачать недостающие сейчас') : null,
         h('div', { class: 'spad' }, h('p', { class: 'hint' }, 'Когда есть интернет, SuperPlan сам скачивает новые вложения после каждой синхронизации. Потом они открываются и без сети.'))));
     }
+    if (!isWide()) page.append(group('Нижние вкладки', ...tabsSettings()));
     page.append(group('Оформление', h('div', { class: 'spad' }, themeSeg)));
 
     const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
