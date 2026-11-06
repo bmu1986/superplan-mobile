@@ -318,7 +318,7 @@ span.tr-btn { background: none; }
 
 /* «Проекты» on the phone: the familiar list, a bit larger, with hairline separators */
 .navs.big .nav { min-height: 56px; margin: 0; border-radius: 0; padding-right: 18px; gap: 10px; position: relative; }
-.navs.big .nav::after { content: ""; position: absolute; left: 52px; right: 0; bottom: 0; height: 1px; background: var(--line); }
+.navs.big .nav::after { content: ""; position: absolute; left: 52px; right: 16px; bottom: 0; height: 0; border-bottom: 1.5px dashed color-mix(in srgb, var(--muted) 45%, transparent); }
 .navs.big .nav-ic { width: 32px; }
 .navs.big .nav-ic svg { width: 28px; height: 28px; }
 .navs.big .nav-ic .g-tile { width: 28px !important; height: 28px !important; }
