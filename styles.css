@@ -326,3 +326,11 @@ span.tr-btn { background: none; }
 .navs.big .count { font-size: 16px; }
 .navs.big .sec { padding-top: 22px; font-size: 14px; }
 .navs.big .nav.active { background: var(--sel); }
+
+/* quick "when" presets in the new-task sheet */
+.qa-block { display: flex; flex-direction: column; gap: 10px; }
+.pill.qp { gap: 5px; }
+.qp-bell { color: var(--accent); display: inline-flex; }
+.pill.on .qp-bell { color: #fff; }
+.qa-sum { font-size: 13.5px; color: var(--accent); background: var(--accent-soft); border-radius: 10px; padding: 7px 10px; }
+.srow.plain { padding: 4px 2px; border: 0; min-height: 44px; }

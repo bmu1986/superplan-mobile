@@ -2,7 +2,7 @@
 (function () {
   const { Store, Blobs, IDB, Dropbox, startAuth, finishAuth, sync, attachmentBytes, Pending } = window.SP;
   const I = window.Icons;
-  const VERSION = '0.3.3';
+  const VERSION = '0.4.0';
 
   // ---------- tiny DOM helpers ----------
   const $ = (s, r = document) => r.querySelector(s);
@@ -629,23 +629,91 @@
     return childrenOf(null)[0]?.id || null;
   }
 
+  // ---------- quick "when" presets: due date + reminder in one tap (synced setting quickPresets) ----------
+  const QP_DEF = [{ type: 'days', value: 0, time: '20:00' }, { type: 'days', value: 1, time: '10:00' }, { type: 'monday', time: '09:00' }];
+  const WD_ACC = ['', 'понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье'];
+  const WD_SH = ['', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  const quickPresets = () => (Array.isArray(state.snap.settings?.quickPresets) ? state.snap.settings.quickPresets : QP_DEF);
+  const hmLabel = (t) => String(t || '').replace(/^0(\d)/, '$1');
+  function qpDay(p) {
+    const d = sod(new Date());
+    if (p.type === 'days') d.setDate(d.getDate() + (Number(p.value) || 0));
+    else {
+      const wd = p.type === 'monday' ? 1 : Number(p.value) || 1;
+      const cur = ((d.getDay() + 6) % 7) + 1;
+      d.setDate(d.getDate() + ((wd - cur + 7) % 7 || 7));
+    }
+    return d;
+  }
+  function qpAt(p) { const d = qpDay(p); const [hh, mm] = String(p.time || '09:00').split(':').map(Number); d.setHours(hh || 0, mm || 0, 0, 0); return d.getTime(); }
+  function qpLabel(p, short = false) {
+    let l;
+    if (p.type === 'days') { const n = Number(p.value) || 0; l = n === 0 ? 'Сегодня' : n === 1 ? 'Завтра' : n === 2 ? 'Послезавтра' : `Через ${n} дн.`; }
+    else { const wd = p.type === 'monday' ? 1 : Number(p.value) || 1; l = short ? WD_SH[wd] : `В ${WD_ACC[wd]}`.replace('В вторник', 'Во вторник'); }
+    return `${l} ${hmLabel(p.time)}`;
+  }
+  const whenSummary = (w) => {
+    if (!w || !w.at) return '';
+    const day = fmtDay(w.at).toLowerCase();
+    return w.hasTime ? `Срок: ${day}, ${fmtTime(w.at)}${w.remind ? ` · напомню ${day} в ${fmtTime(w.at)}` : ''}` : `Срок: ${day}`;
+  };
+  // "Другое…": any date, optional time, reminder at that time
+  function pickWhen(cur) {
+    return new Promise((res) => {
+      let done = false;
+      const base = cur && cur.at ? cur.at : Date.now() + DAY;
+      const date = h('input', { class: 'field', type: 'date', value: toDateInput(base) });
+      const time = h('input', { class: 'field', type: 'time', value: cur && cur.at && cur.hasTime ? fmtTime(cur.at) : '10:00' });
+      let remind = cur && cur.id === 'custom' ? !!cur.remind : true;
+      const sw = h('button', { class: 'switch' + (remind ? ' on' : ''), 'aria-label': 'Напомнить в это время', onclick: () => { remind = !remind; sw.classList.toggle('on', remind); } }, h('i'));
+      const ok = () => {
+        if (!date.value) return;
+        const d = new Date(`${date.value}T00:00`);
+        const hasTime = !!time.value;
+        if (hasTime) { const [hh, mm] = time.value.split(':').map(Number); d.setHours(hh, mm, 0, 0); } else d.setHours(12, 0, 0, 0);
+        done = true; s.close();
+        res({ id: 'custom', at: d.getTime(), hasTime, remind: hasTime && remind });
+      };
+      const s = sheet('Когда', h('div', { class: 'form' },
+        h('label', { class: 'lbl' }, 'Дата'), date, h('label', { class: 'lbl' }, 'Время (необязательно)'), time,
+        h('div', { class: 'srow plain' }, h('span', {}, 'Напомнить в это время'), sw),
+        h('button', { class: 'btn primary', onclick: ok }, 'Готово')), { onClose: () => { if (!done) res(null); } });
+    });
+  }
+
   function quickAdd() {
     let folderId = defaultFolder();
     const v = state.view;
-    let when = v.type === 'today' ? 'today' : null;
+    let when = v.type === 'today' ? { id: 'today', at: sod(new Date()).getTime() + DAY / 2, hasTime: false } : null;
     let pr = 1;
     let fav = v.type === 'fav' ? 1 : 0;
     const asNote = v.type === 'notes';
     const inp = h('textarea', { class: 'field qa-title', rows: 1, placeholder: asNote ? 'Новая заметка' : 'Что нужно сделать?', enterkeyhint: 'done' });
     inp.oninput = () => { inp.style.height = 'auto'; inp.style.height = `${inp.scrollHeight}px`; };
-    const chips = h('div', { class: 'qa-chips' });
+    const chips = h('div', { class: 'qa-block' });
     const drawChips = () => {
       chips.innerHTML = '';
       if (!asNote) {
-        for (const [id, label] of [['today', 'Сегодня'], ['tomorrow', 'Завтра'], [null, 'Без срока']]) chips.append(h('button', { class: 'pill' + (when === id ? ' on' : ''), onclick: () => { when = id; drawChips(); } }, label));
-        chips.append(h('button', { class: 'pill' + (pr === 2 ? ' on red' : ''), onclick: () => { pr = pr === 2 ? 1 : 2; drawChips(); } }, '! Важно'));
+        const whenRow = h('div', { class: 'qa-chips' });
+        const pick = (w) => { when = w; drawChips(); };
+        const isOn = (id) => (when && when.id) === id;
+        whenRow.append(h('button', { class: 'pill' + (!when ? ' on' : ''), onclick: () => pick(null) }, 'Без срока'));
+        whenRow.append(h('button', { class: 'pill' + (isOn('today') ? ' on' : ''), onclick: () => pick({ id: 'today', at: sod(new Date()).getTime() + DAY / 2, hasTime: false }) }, 'Сегодня'));
+        quickPresets().forEach((p, i) => {
+          const at = qpAt(p);
+          if (at <= Date.now()) return; // "today 20:00" after 20:00
+          const id = `qp${i}`;
+          whenRow.append(h('button', { class: 'pill qp' + (isOn(id) ? ' on' : ''), onclick: () => pick({ id, at, hasTime: true, remind: true }) },
+            h('span', {}, qpLabel(p, true)), h('span', { class: 'qp-bell', html: I.bell(13) })));
+        });
+        whenRow.append(h('button', { class: 'pill' + (isOn('custom') ? ' on' : ''), onclick: async () => { const w = await pickWhen(when); if (w) pick(w); } }, isOn('custom') ? `${fmtDay(when.at)}${when.hasTime ? `, ${fmtTime(when.at)}` : ''}` : 'Другое…'));
+        chips.append(whenRow);
+        if (when && when.at) chips.append(h('div', { class: 'qa-sum' }, whenSummary(when)));
       }
-      chips.append(h('button', { class: 'pill' + (fav ? ' on red' : ''), html: I.bookmark(14, fav ? '#fff' : '#e5484d') + ' Избранное', onclick: () => { fav = fav ? 0 : 1; drawChips(); } }));
+      const extra = h('div', { class: 'qa-chips' });
+      if (!asNote) extra.append(h('button', { class: 'pill' + (pr === 2 ? ' on red' : ''), onclick: () => { pr = pr === 2 ? 1 : 2; drawChips(); } }, '! Важно'));
+      extra.append(h('button', { class: 'pill' + (fav ? ' on red' : ''), html: I.bookmark(14, fav ? '#fff' : '#e5484d') + ' Избранное', onclick: () => { fav = fav ? 0 : 1; drawChips(); } }));
+      chips.append(extra);
     };
     drawChips();
     const fsel = folderSelect(folderId, (id) => { folderId = id; });
@@ -655,12 +723,15 @@
       if (!folderId || !folderById(folderId)) folderId = store.upsert('folders', { name: 'Входящие', parent_id: null, sort: 0 }), reload();
       const row = { folder_id: folderId, title, created_at: Date.now(), priority: asNote ? 1 : pr, sort: sortForPriority(folderId, asNote ? 1 : pr, null), fav };
       if (asNote) row.kind = 'note';
-      if (when) { const d = when === 'today' ? new Date() : new Date(Date.now() + DAY); d.setHours(12, 0, 0, 0); row.due_at = d.getTime(); row.due_has_time = 0; }
+      if (!asNote && when && when.at) {
+        row.due_at = when.at; row.due_has_time = when.hasTime ? 1 : 0;
+        if (when.remind && when.at > Date.now()) row.remind_at = when.at;
+      }
       const id = upsert('tasks', row);
       if (v.type === 'tag') { store.setTaskTags(id, [v.id]); reload(); }
       cfg.lastFolder = folderId; saveCfg();
       inp.value = ''; inp.style.height = 'auto';
-      toast(asNote ? 'Заметка добавлена' : `Добавлено в «${folderById(folderId)?.name || ''}»`, 'Открыть', () => { s.close(); openTask(id); });
+      toast(asNote ? 'Заметка добавлена' : `Добавлено в «${folderById(folderId)?.name || ''}»${row.remind_at ? `, напомню ${fmtDay(row.remind_at).toLowerCase()} в ${fmtTime(row.remind_at)}` : ''}`, 'Открыть', () => { s.close(); openTask(id); });
       inp.focus();
     };
     inp.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } };
@@ -1000,6 +1071,32 @@
     document.body.append(link); link.click(); link.remove();
   }
 
+  function quickPresetsSettings() {
+    const list = quickPresets();
+    const save = (arr) => { store.setSetting('quickPresets', arr); reload(); renderList(); };
+    const rows = list.map((p, i) => h('div', { class: 'srow tabrow' },
+      h('span', { class: 'tr-ic', html: I.bell(18) }), h('span', { class: 'tr-label' }, qpLabel(p)),
+      h('button', { class: 'tr-btn', html: I.chevDown(18), style: { transform: 'rotate(180deg)' }, disabled: i === 0, 'aria-label': 'Выше', onclick: () => { const a = [...list]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; save(a); } }),
+      h('button', { class: 'tr-btn danger', html: I.close(16), 'aria-label': 'Убрать', onclick: () => save(list.filter((_, j) => j !== i)) })));
+    const add = async () => {
+      const day = await choose('День', [
+        { label: 'Сегодня', value: { type: 'days', value: 0 } }, { label: 'Завтра', value: { type: 'days', value: 1 } }, { label: 'Послезавтра', value: { type: 'days', value: 2 } },
+        { sep: true }, ...[1, 2, 3, 4, 5, 6, 7].map((wd) => ({ label: `В ${WD_ACC[wd]}`.replace('В вторник', 'Во вторник'), value: { type: 'weekday', value: wd } })),
+      ]);
+      if (!day) return;
+      const t = await new Promise((res) => {
+        let done = false;
+        const inp = h('input', { class: 'field', type: 'time', value: '10:00' });
+        const s = sheet('Время', h('div', { class: 'form' }, inp, h('button', { class: 'btn primary', onclick: () => { done = true; s.close(); res(inp.value); } }, 'Добавить')), { onClose: () => { if (!done) res(null); } });
+      });
+      if (t) save([...list, { ...(day.type === 'weekday' && day.value === 1 ? { type: 'monday' } : day), time: t }]);
+    };
+    return [...rows,
+      h('button', { class: 'srow btn-row', onclick: add }, '+ Добавить кнопку'),
+      Array.isArray(state.snap.settings?.quickPresets) ? h('button', { class: 'srow btn-row', onclick: () => { store.setSetting('quickPresets', null); reload(); renderList(); } }, 'Вернуть как было') : null,
+      h('div', { class: 'spad' }, h('p', { class: 'hint' }, 'Кнопки в окне «Новая задача». Одно нажатие ставит и срок, и напоминание на это время. Кнопка на сегодня прячется, когда время уже прошло.'))];
+  }
+
   // ---------- settings ----------
   function settingsPage() {
     const page = h('div', { class: 'settings' });
@@ -1070,6 +1167,7 @@
         cfg.refreshToken && have.length < refs.length && !offline.running ? h('button', { class: 'srow btn-row', onclick: () => prefetchAttachments(true) }, 'Скачать недостающие сейчас') : null,
         h('div', { class: 'spad' }, h('p', { class: 'hint' }, 'Когда есть интернет, SuperPlan сам скачивает новые вложения после каждой синхронизации. Потом они открываются и без сети.'))));
     }
+    page.append(group('Быстрые кнопки «когда»', ...quickPresetsSettings()));
     if (!isWide()) page.append(group('Нижние вкладки', ...tabsSettings()));
     page.append(group('Оформление', h('div', { class: 'spad' }, themeSeg)));
 
