@@ -1,8 +1,8 @@
-// SuperPlan for iPhone / iPad (installable web app). Same data and rules as the desktop app.
+// Organizer (formerly SuperPlan) for iPhone / iPad (installable web app). Same data and rules as the desktop app.
 (function () {
   const { Store, Blobs, IDB, Dropbox, startAuth, finishAuth, sync, attachmentBytes, Pending } = window.SP;
   const I = window.Icons;
-  const VERSION = '0.4.0';
+  const VERSION = '0.5.0';
 
   // ---------- tiny DOM helpers ----------
   const $ = (s, r = document) => r.querySelector(s);
@@ -346,7 +346,7 @@
     if (!isWide()) { el.innerHTML = ''; return; }
     const scroll = el.querySelector('.side-scroll')?.scrollTop || 0;
     el.innerHTML = '';
-    const box = h('div', { class: 'side-scroll' }, h('div', { class: 'brand' }, h('span', { class: 'logo' }), 'SuperPlan'), navList({ forSide: true }));
+    const box = h('div', { class: 'side-scroll' }, h('div', { class: 'brand' }, h('span', { class: 'logo' }), 'Organizer'), navList({ forSide: true }));
     el.append(box, h('div', { class: 'side-foot' },
       navItem({ icon: I.gear(21), label: 'Настройки', active: state.view.type === 'settings', onclick: () => setView({ type: 'settings' }) }),
       syncButton()));
@@ -1148,7 +1148,7 @@
       } }, '2. Подключить');
       page.append(group('Синхронизация через Dropbox',
         h('div', { class: 'spad' },
-          h('p', { class: 'hint' }, 'Используйте тот же App key, что и на компьютере: SuperPlan → Настройки → Синхронизация → Dropbox. Задачи с компьютера появятся здесь, а изменения с телефона попадут на компьютер.'),
+          h('p', { class: 'hint' }, 'Используйте тот же App key, что и на компьютере: Organizer → Настройки → Синхронизация → Dropbox. Задачи с компьютера появятся здесь, а изменения с телефона попадут на компьютер.'),
           key, openBtn, h('p', { class: 'hint' }, 'Dropbox покажет код. Скопируйте его, вернитесь сюда и вставьте:'), code, connect, err)));
     }
 
@@ -1165,7 +1165,7 @@
         h('div', { class: 'srow' }, h('span', {}, 'Скачано'), h('b', {}, status)),
         offline.failed && !offline.running ? h('div', { class: 'srow err' }, `Не удалось скачать: ${offline.failed}. Возможно, компьютер ещё не загрузил эти файлы в Dropbox.`) : null,
         cfg.refreshToken && have.length < refs.length && !offline.running ? h('button', { class: 'srow btn-row', onclick: () => prefetchAttachments(true) }, 'Скачать недостающие сейчас') : null,
-        h('div', { class: 'spad' }, h('p', { class: 'hint' }, 'Когда есть интернет, SuperPlan сам скачивает новые вложения после каждой синхронизации. Потом они открываются и без сети.'))));
+        h('div', { class: 'spad' }, h('p', { class: 'hint' }, 'Когда есть интернет, Organizer сам скачивает новые вложения после каждой синхронизации. Потом они открываются и без сети.'))));
     }
     page.append(group('Быстрые кнопки «когда»', ...quickPresetsSettings()));
     if (!isWide()) page.append(group('Нижние вкладки', ...tabsSettings()));
@@ -1173,11 +1173,11 @@
 
     const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
     if (!standalone) {
-      page.append(group('Установка', h('div', { class: 'spad' }, h('p', { class: 'hint' }, 'Чтобы SuperPlan открывался как приложение: в Safari нажмите «Поделиться» ', h('span', { class: 'share-ic', html: '<svg width="14" height="16" viewBox="0 0 14 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 1v11M3.5 4.5L7 1l3.5 3.5"/><path d="M4.5 7H2a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1H9.5"/></svg>' }), ' → «На экран Домой».'))));
+      page.append(group('Установка', h('div', { class: 'spad' }, h('p', { class: 'hint' }, 'Чтобы Organizer открывался как приложение: в Safari нажмите «Поделиться» ', h('span', { class: 'share-ic', html: '<svg width="14" height="16" viewBox="0 0 14 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 1v11M3.5 4.5L7 1l3.5 3.5"/><path d="M4.5 7H2a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1H9.5"/></svg>' }), ' → «На экран Домой».'))));
     }
     const n = state.snap.tasks.length;
     page.append(group('О программе',
-      h('div', { class: 'srow' }, h('span', {}, 'Версия'), h('b', {}, `SuperPlan Mobile ${VERSION}`)),
+      h('div', { class: 'srow' }, h('span', {}, 'Версия'), h('b', {}, `Organizer Mobile ${VERSION}`)),
       h('div', { class: 'srow' }, h('span', {}, 'Задач и заметок'), h('b', {}, String(n))),
       h('button', { class: 'srow btn-row danger', onclick: resetLocal }, 'Стереть данные на этом устройстве')));
     return page;
@@ -1304,7 +1304,7 @@
   }
 
   start().catch((e) => {
-    document.body.innerHTML = `<div class="fatal"><b>SuperPlan не запустился</b><p>${esc(e.message)}</p><button onclick="location.reload()">Перезапустить</button></div>`;
+    document.body.innerHTML = `<div class="fatal"><b>Organizer не запустился</b><p>${esc(e.message)}</p><button onclick="location.reload()">Перезапустить</button></div>`;
   });
   window.__sp = { state, get store() { return store; }, syncNow, cfg: () => cfg };
 })();
